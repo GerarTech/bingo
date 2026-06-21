@@ -119,6 +119,7 @@ function HomePage() {
   const [gameId, setGameId] = useState('');
   const [previewCard, setPreviewCard] = useState<number[][]>([]);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [amharicVoiceEnabled, setAmharicVoiceEnabled] = useState(true);
   const [showWinModal, setShowWinModal] = useState(false);
   const [winningCard, setWinningCard] = useState<number[][]>([]);
   const [winningCells, setWinningCells] = useState<boolean[][]>([]);
