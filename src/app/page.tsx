@@ -40,59 +40,65 @@ const AMHARIC_COLUMNS: Record<string, string> = {
   B: 'ቢ', I: 'አይ', N: 'ኤን', G: 'ጂ', O: 'ኦ',
 };
 
-// Voice announcement for drawn numbers using pre-generated audio files
-// Numbers 1-9: separate files
-// Numbers 10,20,30,40,50,60,70: common base files
-// Numbers 11-19 in English: special files (eleven, twelve, etc.)
-// Numbers 11-19 in Amharic: base + unit (አስራ አንድ, etc.)
-// Numbers 21-29, 31-39, etc: base + unit combined
-// Letters B/I/N/G/O: separate files
+// Voice announcement for drawn numbers
+// English: Uses Web Speech API
+// Amharic: Uses pre-generated audio files
 async function speakNumber(num: number, lang: 'en' | 'am') {
   if (typeof window === 'undefined') return;
   
   const label = getColumnLabel(num);
   
-  try {
-    // Play column letter first
-    const letterAudio = new Audio(`/audio/${lang}/${label}.mp3`);
-    await letterAudio.play();
+  if (lang === 'en') {
+    // English: Use Web Speech API
+    if (!window.speechSynthesis) return;
     
-    await letterAudio.addEventListener('ended', async () => {
-      // Decompose number into audio parts
-      const audioParts: string[] = [];
+    window.speechSynthesis.cancel();
+    const text = `${label} ${num}`;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.9;
+    window.speechSynthesis.speak(utterance);
+  } else {
+    // Amharic: Use pre-generated audio files
+    try {
+      // Play column letter first
+      const letterAudio = new Audio(`/audio/am/${label}.mp3`);
+      await letterAudio.play();
       
-      if (num <= 9) {
-        // 1-9: single file
-        audioParts.push(`/audio/${lang}/${num}.mp3`);
-      } else if (num % 10 === 0) {
-        // 10, 20, 30, 40, 50, 60, 70: base files
-        audioParts.push(`/audio/${lang}/${num}.mp3`);
-      } else if (lang === 'en' && num >= 11 && num <= 19) {
-        // English 11-19: special files (eleven, twelve, thirteen, etc.)
-        audioParts.push(`/audio/${lang}/${num}.mp3`);
-      } else {
-        // Amharic 11-19, or English 21-29, 31-39, etc: base + unit
-        const base = Math.floor(num / 10) * 10;
-        const unit = num % 10;
-        audioParts.push(`/audio/${lang}/${base}.mp3`);
-        audioParts.push(`/audio/${lang}/${unit}.mp3`);
-      }
-      
-      // Play each part sequentially
-      for (const audioPath of audioParts) {
-        try {
-          const audio = new Audio(audioPath);
-          await audio.play();
-          await new Promise((resolve) => audio.addEventListener('ended', resolve, { once: true }));
-        } catch (err) {
-          // Skip missing files silently
+      await letterAudio.addEventListener('ended', async () => {
+        // Decompose number into audio parts
+        const audioParts: string[] = [];
+        
+        if (num <= 9) {
+          // 1-9: single file
+          audioParts.push(`/audio/am/${num}.mp3`);
+        } else if (num % 10 === 0) {
+          // 10, 20, 30, 40, 50, 60, 70: base files
+          audioParts.push(`/audio/am/${num}.mp3`);
+        } else {
+          // 11-19, 21-29, etc: base + unit
+          const base = Math.floor(num / 10) * 10;
+          const unit = num % 10;
+          audioParts.push(`/audio/am/${base}.mp3`);
+          audioParts.push(`/audio/am/${unit}.mp3`);
         }
-      }
-    }, { once: true });
-    
-  } catch (err) {
-    console.error('Audio playback error:', err);
-    // Silent fail - no audio if file not found
+        
+        // Play each part sequentially
+        for (const audioPath of audioParts) {
+          try {
+            const audio = new Audio(audioPath);
+            await audio.play();
+            await new Promise((resolve) => audio.addEventListener('ended', resolve, { once: true }));
+          } catch (err) {
+            // Skip missing files silently
+          }
+        }
+      }, { once: true });
+      
+    } catch (err) {
+      console.error('Audio playback error:', err);
+      // Silent fail - no audio if file not found
+    }
   }
 }
 
