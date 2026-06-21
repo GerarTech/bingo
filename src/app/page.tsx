@@ -40,38 +40,60 @@ const AMHARIC_COLUMNS: Record<string, string> = {
   B: 'ቢ', I: 'አይ', N: 'ኤን', G: 'ጂ', O: 'ኦ',
 };
 
-// Voice announcement for drawn numbers
-function speakNumber(num: number, lang: 'en' | 'am') {
-  if (typeof window === 'undefined' || !window.speechSynthesis) return;
-  
-  // Cancel any ongoing speech
-  window.speechSynthesis.cancel();
+// Voice announcement for drawn numbers using pre-generated audio files
+// Numbers 1-9: separate files
+// Numbers 10,20,30,40,50,60,70: common base files
+// Numbers 11-19 in English: special files (eleven, twelve, etc.)
+// Numbers 11-19 in Amharic: base + unit (አስራ አንድ, etc.)
+// Numbers 21-29, 31-39, etc: base + unit combined
+// Letters B/I/N/G/O: separate files
+async function speakNumber(num: number, lang: 'en' | 'am') {
+  if (typeof window === 'undefined') return;
   
   const label = getColumnLabel(num);
-  let text: string;
   
-  if (lang === 'am') {
-    const colName = AMHARIC_COLUMNS[label] || label;
-    const numWord = AMHARIC_NUMBERS[num] || String(num);
-    text = `${colName} ${numWord}`;
-  } else {
-    text = `${label} ${num}`;
+  try {
+    // Play column letter first
+    const letterAudio = new Audio(`/audio/${lang}/${label}.mp3`);
+    await letterAudio.play();
+    
+    await letterAudio.addEventListener('ended', async () => {
+      // Decompose number into audio parts
+      const audioParts: string[] = [];
+      
+      if (num <= 9) {
+        // 1-9: single file
+        audioParts.push(`/audio/${lang}/${num}.mp3`);
+      } else if (num % 10 === 0) {
+        // 10, 20, 30, 40, 50, 60, 70: base files
+        audioParts.push(`/audio/${lang}/${num}.mp3`);
+      } else if (lang === 'en' && num >= 11 && num <= 19) {
+        // English 11-19: special files (eleven, twelve, thirteen, etc.)
+        audioParts.push(`/audio/${lang}/${num}.mp3`);
+      } else {
+        // Amharic 11-19, or English 21-29, 31-39, etc: base + unit
+        const base = Math.floor(num / 10) * 10;
+        const unit = num % 10;
+        audioParts.push(`/audio/${lang}/${base}.mp3`);
+        audioParts.push(`/audio/${lang}/${unit}.mp3`);
+      }
+      
+      // Play each part sequentially
+      for (const audioPath of audioParts) {
+        try {
+          const audio = new Audio(audioPath);
+          await audio.play();
+          await new Promise((resolve) => audio.addEventListener('ended', resolve, { once: true }));
+        } catch (err) {
+          // Skip missing files silently
+        }
+      }
+    }, { once: true });
+    
+  } catch (err) {
+    console.error('Audio playback error:', err);
+    // Silent fail - no audio if file not found
   }
-  
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = lang === 'am' ? 'am-ET' : 'en-US';
-  utterance.rate = 0.9;
-  utterance.pitch = 1;
-  utterance.volume = 1;
-  
-  // Try to find an Amharic voice if available
-  if (lang === 'am') {
-    const voices = window.speechSynthesis.getVoices();
-    const amharicVoice = voices.find(v => v.lang.startsWith('am'));
-    if (amharicVoice) utterance.voice = amharicVoice;
-  }
-  
-  window.speechSynthesis.speak(utterance);
 }
 
 function HomePage() {
