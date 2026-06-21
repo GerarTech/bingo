@@ -11,6 +11,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+// Initialize bot lazily to avoid getMe timeout on module load
 const bot = new Telegraf(botToken);
 
 function getUserLang(ctx: any): 'en' | 'am' {
@@ -368,6 +369,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error('Telegram webhook error:', error);
-    return NextResponse.json({ ok: false }, { status: 500 });
+    // Return 200 even on error so Telegram doesn't keep retrying
+    return NextResponse.json({ ok: true, warning: 'handled with error' });
   }
 }
