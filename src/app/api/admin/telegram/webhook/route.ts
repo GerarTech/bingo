@@ -176,8 +176,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // Handle /start command
+    if (text === '/start') {
+      await sendMessage(chatId, '🔐 Admin Bot Ready\n\nUse the menu below or type /admin_help for commands:', {
+        reply_markup: {
+          keyboard: [
+            [{ text: '📊 Stats' }, { text: '👥 Users' }],
+            [{ text: '⏳ Pending' }, { text: '❓ Help' }],
+          ],
+          resize_keyboard: true,
+        }
+      });
+      return NextResponse.json({ ok: true });
+    }
+
     // Admin commands (dynamic from DB)
     const commands = await getBotCommands();
+
+    // Handle admin menu buttons
+    if (text === '📊 Stats') {
+      await handleAdminStats(chatId);
+      return NextResponse.json({ ok: true });
+    }
+    if (text === '👥 Users') {
+      await handleAdminUsers(chatId);
+      return NextResponse.json({ ok: true });
+    }
+    if (text === '⏳ Pending') {
+      await handleAdminPending(chatId);
+      return NextResponse.json({ ok: true });
+    }
+    if (text === '❓ Help') {
+      await sendMessage(chatId, `*🔐 Admin Commands*\n\n${commands.admin_stats} - View dashboard stats\n${commands.admin_users} - List recent users\n${commands.admin_pending} - View pending transactions\n${commands.admin_approve}<tx_id> - Approve a transaction\n${commands.admin_reject}<tx_id> - Reject a transaction\n${commands.admin_help} - Show this help`, { parse_mode: 'Markdown' });
+      return NextResponse.json({ ok: true });
+    }
     
     if (text === commands.admin_stats) {
       await handleAdminStats(chatId);
