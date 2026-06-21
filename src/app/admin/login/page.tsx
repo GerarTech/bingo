@@ -40,7 +40,7 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-black text-gold">ADMIN</h1>
-          <p className="text-gray-400 text-sm mt-2">Fua BINGO Admin Panel</p>
+          <p className="text-gray-400 text-sm mt-2">Nile Bingo Admin Panel</p>
         </div>
         <form onSubmit={handleLogin} className="bg-navy-card rounded-2xl p-6 space-y-4">
           <div>

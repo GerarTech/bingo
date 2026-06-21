@@ -93,7 +93,7 @@ git push
 2. Search for your bot username (the one you created with @BotFather)
 3. Send `/start`
 4. You should receive:
-   - Welcome message: "🎰 Welcome to Fua BINGO!"
+   - Welcome message: "🎰 Welcome to Nile Bingo!"
    - A button: "📱 Share Phone Number"
 5. Tap the button and share your contact
 

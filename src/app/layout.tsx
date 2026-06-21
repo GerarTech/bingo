@@ -6,7 +6,7 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Fua BINGO',
+  title: 'Nile Bingo',
   description: 'Play BINGO on Telegram',
   other: {
     'telegram-web-app': 'true',

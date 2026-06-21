@@ -474,7 +474,7 @@ function HomePage() {
     return (
       <div className="px-4 pt-5 animate-fade-in">
         <div className="text-center mb-6">
-          <div className="text-2xl font-black text-gold">FUA BINGO</div>
+          <div className="text-2xl font-black text-gold">NILE BINGO</div>
         </div>
 
         <h3 className="text-xs text-gray-400 mb-3 font-medium">{t('choose_stake')}</h3>
@@ -546,7 +546,7 @@ function HomePage() {
         <div className="px-4 pt-4 pb-2 border-b border-white/5 relative">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm font-bold text-gold">FUA BINGO</div>
+          <div className="text-sm font-bold text-gold">NILE BINGO</div>
               <div className="text-[10px] text-gray-400">{t('select_card')}</div>
             </div>
             <button onClick={() => { setShowCardPicker(false); setSelectedStake(null); setSelectedCards([]); setPreviewCard([]); }} className="text-gray-400 hover:text-white p-1"><X size={18} /></button>

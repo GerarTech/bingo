@@ -105,7 +105,7 @@ function getUserLang(from: any): 'en' | 'am' {
 }
 
 const EN = {
-  welcome: '🎰 Welcome to Fua BINGO!\n\nThe most exciting BINGO experience on Telegram.\n\nTap the button below to start playing!',
+  welcome: '🎰 Welcome to Nile Bingo!\n\nThe most exciting BINGO experience on Telegram.\n\nTap the button below to start playing!',
   share_contact: '📱 Please share your phone number to continue.\n\nThis helps us identify you and provide better support.',
   share_contact_btn: '📱 Share Phone Number',
   contact_received: '✅ Thank you! Your contact has been shared with our support team.',
@@ -124,7 +124,7 @@ const EN = {
   deposit_choose: '💳 *Choose payment method:*\n\nSelect your preferred option below:',
   deposit_cbe: 'CBE (Commercial Bank of Ethiopia)',
   deposit_telebirr: 'Telebirr',
-  deposit_cbe_info: '*CBE Deposit Instructions*\n\nAccount: 1000256789123\nName: Fua BINGO\nBank: CBE\n\nSend amount, then forward SMS confirmation here.',
+  deposit_cbe_info: '*CBE Deposit Instructions*\n\nAccount: 1000256789123\nName: Nile Bingo\nBank: CBE\n\nSend amount, then forward SMS confirmation here.',
   deposit_telebirr_info: '*Telebirr Deposit Instructions*\n\nNumber: 0925502345\nName: Ashe\n\nSend up to 1000 ETB, then forward SMS confirmation here.',
   withdraw_info: '*Withdraw Funds*\n\nContact support to withdraw. Min: 50 ETB',
   contact_info: '*Contact Support*\n\nEmail: support@fuabingo.com\nTelegram: @fua_bingo_support',
@@ -143,7 +143,7 @@ const EN = {
 };
 
 const AM = {
-  welcome: '🎰 እንኳን ወደ Fua BINGO በደህና መጡ!\n\nመጫወት ለመጀመር ከታች ያለውን ቁልፍ ይጫኑ!',
+  welcome: '🎰 እንኳን ወደ Nile Bingo በደህና መጡ!\n\nመጫወት ለመጀመር ከታች ያለውን ቁልፍ ይጫኑ!',
   share_contact: '📱 እባክዎ ለመቀጠል ስልክ ቁጥርዎን ያጋሩ።',
   share_contact_btn: '📱 ስልክ ቁጥር አጋራ',
   contact_received: '✅ እናመሰግናለን! ስልክ ቁጥርዎ ደርሷል።',
@@ -162,7 +162,7 @@ const AM = {
   deposit_choose: '💳 *የክፍያ ዘዴ ምረጥ:*',
   deposit_cbe: 'CBE ባንክ',
   deposit_telebirr: 'ቴሌብር',
-  deposit_cbe_info: '*CBE መመሪያ*\n\nአካውንት: 1000256789123\nስም: Fua BINGO\nባንክ: CBE',
+  deposit_cbe_info: '*CBE መመሪያ*\n\nአካውንት: 1000256789123\nስም: Nile Bingo\nባንክ: CBE',
   deposit_telebirr_info: '*ቴሌብር መመሪያ*\n\nቁጥር: 0925502345\nስም: አሸ',
   withdraw_info: '*ገንዘብ ማውጣት*\n\nድጋፍ ያግኙ። ዝቅተኛ: 50 ETB',
   contact_info: '*ድጋፍ*\n\nEmail: support@fuabingo.com\nTelegram: @fua_bingo_support',
@@ -480,18 +480,36 @@ export async function POST(request: NextRequest) {
       language: '🌐 Language',
     };
     
+    // Plain text commands (without emojis) for manual typing
+    const plainCommands = {
+      play: 'play',
+      check_balance: 'check_balance',
+      deposit: 'deposit',
+      withdraw: 'withdraw',
+      contact: 'contact',
+      instructions: 'instructions',
+      transactions: 'transactions',
+      winning_patterns: 'winning_patterns',
+      language: 'language',
+    };
+    
     // Merge DB commands with defaults
     const userCommands = { ...defaultCommands, ...commands };
     
-    if (text.startsWith('🎮') || text === userCommands.play) {
+    // Helper to check if text matches a command (with or without emoji)
+    const matchesCommand = (cmdText: string, plainText: string) => {
+      return text === cmdText || text === plainText || text.startsWith(cmdText.split(' ')[0]);
+    };
+    
+    if (matchesCommand(userCommands.play, plainCommands.play)) {
       await sendMessage(chatId, getMsg('welcome', 'welcome'), {
         reply_markup: {
           inline_keyboard: [[{ text: getText(lang, 'play'), web_app: { url: miniAppUrl } }]]
         }
       });
-    } else if (text.startsWith('💰') || text === userCommands.check_balance) {
+    } else if (matchesCommand(userCommands.check_balance, plainCommands.check_balance)) {
       await sendMessage(chatId, getMsg('balance_info', 'balance_info'), { parse_mode: 'Markdown' });
-    } else if (text.startsWith('💳') || text === userCommands.deposit) {
+    } else if (matchesCommand(userCommands.deposit, plainCommands.deposit)) {
       await sendMessage(chatId, getMsg('deposit_choose', 'deposit_choose'), {
         parse_mode: 'Markdown',
         reply_markup: {
@@ -501,22 +519,22 @@ export async function POST(request: NextRequest) {
           ]
         }
       });
-    } else if (text.startsWith('💸') || text === userCommands.withdraw) {
+    } else if (matchesCommand(userCommands.withdraw, plainCommands.withdraw)) {
       await sendMessage(chatId, getMsg('withdraw_info', 'withdraw_info'), { parse_mode: 'Markdown' });
-    } else if (text.startsWith('📞') || text === userCommands.contact) {
+    } else if (matchesCommand(userCommands.contact, plainCommands.contact)) {
       await sendMessage(chatId, getMsg('contact_info', 'contact_info'), { parse_mode: 'Markdown' });
-    } else if (text.startsWith('📜') || text === userCommands.instructions) {
+    } else if (matchesCommand(userCommands.instructions, plainCommands.instructions)) {
       await sendMessage(chatId, getMsg('how_to_play', 'how_to_play'), { parse_mode: 'Markdown' });
-    } else if (text.startsWith('📒') || text === userCommands.transactions) {
+    } else if (matchesCommand(userCommands.transactions, plainCommands.transactions)) {
       await sendMessage(chatId, getMsg('transactions_prompt', 'transactions_prompt'), {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [[{ text: '📂 Open Mini App', web_app: { url: miniAppUrl } }]]
         }
       });
-    } else if (text.startsWith('🎯') || text === userCommands.winning_patterns) {
+    } else if (matchesCommand(userCommands.winning_patterns, plainCommands.winning_patterns)) {
       await sendMessage(chatId, getMsg('winning_patterns_info', 'winning_patterns_info'), { parse_mode: 'Markdown' });
-    } else if (text.startsWith('🌐') || text === userCommands.language) {
+    } else if (matchesCommand(userCommands.language, plainCommands.language)) {
       await sendMessage(chatId, getText('en', 'language_menu'), {
         reply_markup: {
           inline_keyboard: [

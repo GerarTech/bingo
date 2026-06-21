@@ -1,6 +1,6 @@
 export const en = {
   // Common
-  app_name: 'Fua BINGO',
+  app_name: 'Nile Bingo',
   tab_game: 'Game',
   tab_scores: 'Scores',
   tab_history: 'History',
@@ -87,7 +87,7 @@ export const en = {
   game_settings: 'Game Settings',
   
   // Bot messages
-  bot_welcome: '🎰 Welcome to Fua BINGO!\n\nThe most exciting BINGO experience on Telegram.\n\nClick the button below to start playing!',
+  bot_welcome: '🎰 Welcome to Nile Bingo!\n\nThe most exciting BINGO experience on Telegram.\n\nClick the button below to start playing!',
   bot_share_contact: '📱 Please share your phone number to continue.\n\nThis helps us identify you and provide better support.',
   bot_share_contact_btn: '📱 Share Phone Number',
   bot_contact_received: '✅ Thank you! Your contact has been shared with our support team.',
