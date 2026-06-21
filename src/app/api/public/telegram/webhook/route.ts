@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Telegraf, Markup } from 'telegraf';
 import { createClient } from '@supabase/supabase-js';
 
 const botToken = process.env.TELEGRAM_BOT_TOKEN || '';
@@ -11,11 +10,98 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-// Initialize bot lazily to avoid getMe timeout on module load
-const bot = new Telegraf(botToken);
+// Cache for bot commands and messages
+let cachedCommands: Record<string, string> = {};
+let cachedMessages: Record<string, string> = {};
+let commandsCacheTime = 0;
+let messagesCacheTime = 0;
+const COMMANDS_CACHE_TTL = 30000; // 30 seconds
+const MESSAGES_CACHE_TTL = 30000; // 30 seconds
 
-function getUserLang(ctx: any): 'en' | 'am' {
-  return (ctx.from?.language_code === 'am' || ctx.from?.language_code === 'ar') ? 'am' : 'en';
+async function getBotCommands(): Promise<Record<string, string>> {
+  const now = Date.now();
+  if (cachedCommands && (now - commandsCacheTime) < COMMANDS_CACHE_TTL) {
+    return cachedCommands;
+  }
+  
+  try {
+    const { data } = await supabase
+      .from('bot_config')
+      .select('commands')
+      .eq('id', 'main')
+      .single();
+    
+    cachedCommands = data?.commands || {
+      admin_stats: '/admin_stats',
+      admin_users: '/admin_users',
+      admin_pending: '/admin_pending',
+      admin_help: '/admin_help',
+      admin_approve: '/approve_',
+      admin_reject: '/reject_',
+    };
+    commandsCacheTime = now;
+    return cachedCommands;
+  } catch {
+    return {
+      admin_stats: '/admin_stats',
+      admin_users: '/admin_users',
+      admin_pending: '/admin_pending',
+      admin_help: '/admin_help',
+      admin_approve: '/approve_',
+      admin_reject: '/reject_',
+    };
+  }
+}
+
+async function getBotMessages(): Promise<Record<string, string>> {
+  const now = Date.now();
+  if (cachedMessages && (now - messagesCacheTime) < MESSAGES_CACHE_TTL) {
+    return cachedMessages;
+  }
+  
+  try {
+    const { data } = await supabase
+      .from('bot_messages')
+      .select('messages')
+      .eq('id', 'main')
+      .single();
+    
+    cachedMessages = data?.messages || {};
+    messagesCacheTime = now;
+    return cachedMessages;
+  } catch {
+    return {};
+  }
+}
+
+// Direct Telegram API call (no Telegraf - avoids getMe timeout)
+const TG_API = `https://api.telegram.org/bot${botToken}`;
+
+async function tgCall(method: string, payload: any = {}): Promise<any> {
+  try {
+    const res = await fetch(`${TG_API}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10000),
+    });
+    return await res.json();
+  } catch (err) {
+    console.error(`Telegram API ${method} error:`, err);
+    return { ok: false };
+  }
+}
+
+async function sendMessage(chatId: string | number, text: string, extra: any = {}) {
+  return tgCall('sendMessage', { chat_id: chatId, text, ...extra });
+}
+
+async function answerCallbackQuery(callbackQueryId: string, text?: string) {
+  return tgCall('answerCallbackQuery', { callback_query_id: callbackQueryId, text });
+}
+
+function getUserLang(from: any): 'en' | 'am' {
+  return (from?.language_code === 'am' || from?.language_code === 'ar') ? 'am' : 'en';
 }
 
 const EN = {
@@ -24,7 +110,6 @@ const EN = {
   share_contact_btn: '📱 Share Phone Number',
   contact_received: '✅ Thank you! Your contact has been shared with our support team.',
   contact_already: '✅ Your phone number is already shared with us.',
-  admin_notification: '📱 *New User Contact Shared*\n\n👤 User: {name}\n🆔 Telegram ID: {id}\n📞 Phone: {phone}\n👤 Username: @{username}',
   play: '🎮 Play BINGO',
   check_balance: '💰 Check Balance',
   deposit: '💳 Deposit',
@@ -35,99 +120,55 @@ const EN = {
   winning_patterns: '🎯 Winning patterns',
   language: '🌐 Language',
   balance_info: '💰 *Your Balance*\n\nMain Wallet: 0 ETB\nPlay Wallet: 0 ETB\nTotal: 0 ETB',
-  no_account: 'Please click *Play BINGO* first to create your account.',
-  how_to_play: [
-    '*How to Play BINGO:*\n',
-    '1\uFE0F\u20E3 Choose your stake amount (10/20/50 \u1241\u122D)\n',
-    '2\uFE0F\u20E3 Select your BINGO card (1-300)\n',
-    '3\uFE0F\u20E3 Numbers are drawn every few seconds\n',
-    '4\uFE0F\u20E3 Mark matching numbers on your card\n',
-    '5\uFE0F\u20E3 Complete a row, column, or diagonal to win!\n',
-    'Good luck! \uD83C\uDF40'
-  ].join(''),
-  deposit_choose: '💳 *Choose payment method:*\n\nSelect your preferred payment option below:',
+  how_to_play: '*How to Play BINGO:*\n\n1. Choose your stake (10/20/50 ETB)\n2. Select your card (1-300)\n3. Numbers are drawn\n4. Mark matching numbers\n5. Complete a row/column/diagonal to win!\n\nGood luck!',
+  deposit_choose: '💳 *Choose payment method:*\n\nSelect your preferred option below:',
   deposit_cbe: 'CBE (Commercial Bank of Ethiopia)',
   deposit_telebirr: 'Telebirr',
-  deposit_cbe_info: [
-    '\uD83C\uDFE6 *Manual Deposit Instructions - CBE*\n',
-    '*Bank Details:*\n',
-    'Account Number: 1000256789123\n',
-    'Account Name: Fua BINGO\n',
-    'Bank: Commercial Bank of Ethiopia\n\n',
-    '*Steps:*\n',
-    '1\uFE0F\u20E3 Send the desired amount to the account above\n',
-    '2\uFE0F\u20E3 Copy the full SMS confirmation from your bank\n',
-    '3\uFE0F\u20E3 Send that confirmation message here\n\n',
-    'Now send your transaction ID or payment confirmation text.\n',
-    'Type *Cancel* any time to stop.'
-  ].join(''),
-  deposit_telebirr_info: [
-    '\uD83D\uDCB3 *Manual Deposit Instructions - Telebirr*\n',
-    '*Payment Details:*\n',
-    'Number: 0925502345\n',
-    'Recipient name: Ashe\n\n',
-    '*Steps:*\n',
-    '1\uFE0F\u20E3 Send up to 1000 ETB using Telebirr\n',
-    '2\uFE0F\u20E3 Copy the full SMS confirmation from the wallet\n',
-    '3\uFE0F\u20E3 Send that confirmation message here\n\n',
-    'Now send your transaction ID or payment confirmation text.\n',
-    'Type *Cancel* any time to stop.'
-  ].join(''),
-  withdraw_info: [
-    '\uD83D\uDCB8 *Withdraw Funds*\n',
-    'To withdraw your winnings, please contact our support team.\n',
-    'Use the \uD83D\uDCDE Contact Us button to reach out.\n',
-    'Minimum withdrawal: 50 ETB'
-  ].join(''),
-  contact_info: [
-    '\uD83D\uDCDE *Contact Support*\n',
-    'For any issues or inquiries:\n',
-    'Email: support@fuabingo.com\n',
-    'Telegram: @fua_bingo_support\n',
-    'We typically respond within 24 hours.'
-  ].join(''),
-  winning_patterns_info: [
-    '\uD83C\uDFAF *Winning Patterns*\n',
-    'Complete any of these patterns to call BINGO!\n\n',
-    '*1. Horizontal Line* \u2014 5 numbers in any row\n',
-    '*2. Vertical Line* \u2014 5 numbers in any column\n',
-    '*3. Diagonal Line* \u2014 5 numbers diagonally\n',
-    '*4. Four Corners* \u2014 All 4 corner numbers\n',
-    '*5. Blackout* \u2014 All 15 numbers on your card\n\n',
-    'The first player to complete a valid pattern wins! \uD83C\uDFC6'
-  ].join(''),
-  language_menu: 'Choose your language / Select your language:',
-  transactions_prompt: 'Open the Mini App and go to the Wallet tab to view your transaction history.',
-};
-
-const AM = {
-  welcome: '\uD83C\uDFB0 Welcome to Fua BINGO! The most exciting BINGO experience on Telegram. Tap the button below to start playing!',
-  share_contact: '📱 እባክዎ ለመቀጠል ስልክ ቁጥርዎን ያጋሩ።\n\nይህ እርስዎን ለመለየት እና የተሻለ ድጋፍ ለመስጠት ይረዳናል።',
-  share_contact_btn: '📱 ስልክ ቁጥር አጋራ',
-  contact_received: '✅ እናመሰግናለን! ስልክ ቁጥርዎ ለደንበኛ ድጋፍ ቡድናችን ደርሷል።',
-  contact_already: '✅ ስልክ ቁጥርዎ ቀደም ሲል ተጋርቷል።',
-  admin_notification: '📱 *አዲስ ተጠቃሚ ስልክ ቁጥር አጋርቷል*\n\n👤 ተጠቃሚ: {name}\n🆔 ቴሌግራም መለያ: {id}\n📞 ስልክ: {phone}\n👤 የተጠቃሚ ስም: @{username}',
-  play: '\uD83C\uDFAE \u1261\u1295\u130C\u12CE \u1273\u132B\u12CB\u1275',
-  check_balance: '\u12C0\u122D\u12EE \u1212\u1235\u1265 \u12ED\u1218\u120D\u12A8\u1271',
-  deposit: '\u1273\u12C8\u121B\u1272',
-  withdraw: '\u12A0\u12C9\u1273',
-  contact: '\u12EB\u130D\u1295\u1275',
-  instructions: '\u12F0\u130B\u12EB\u1273 \u1218\u121D\u122A\u12EB',
-  transactions: '\u130D\u1265\u12ED\u1276\u1275',
-  winning_patterns: '\u12E8\u121B\u1234\u1295\u1260\u134B\u12EB \u12B8\u12F0\u12ED\u12EB\u1275',
-  language: '\u1269\u1295\u1270\u1295',
-  balance_info: '*Your Balance*\n\nMain Wallet: 0 ETB\nPlay Wallet: 0 ETB\nTotal: 0 ETB',
-  how_to_play: '*How to Play BINGO:*\n\n1. Choose your stake (10/20/50 ETB)\n2. Select your card (1-300)\n3. Numbers are drawn\n4. Mark matching numbers\n5. Complete a row/column/diagonal to win!\n\nGood luck!',
-  deposit_choose: '*Choose payment method:*\n\nSelect your preferred option below:',
-  deposit_cbe: 'CBE Bank',
-  deposit_telebirr: 'Telebirr',
-  deposit_cbe_info: '*CBE Deposit Instructions*\n\nAccount: 1000256789123\nName: Fua BINGO\nBank: CBE\n\nSend amount, then forward SMS confirmation here.\n\nType Cancel to stop.',
-  deposit_telebirr_info: '*Telebirr Deposit Instructions*\n\nNumber: 0925502345\nName: Ashe\n\nSend up to 1000 ETB, then forward SMS confirmation here.\n\nType Cancel to stop.',
+  deposit_cbe_info: '*CBE Deposit Instructions*\n\nAccount: 1000256789123\nName: Fua BINGO\nBank: CBE\n\nSend amount, then forward SMS confirmation here.',
+  deposit_telebirr_info: '*Telebirr Deposit Instructions*\n\nNumber: 0925502345\nName: Ashe\n\nSend up to 1000 ETB, then forward SMS confirmation here.',
   withdraw_info: '*Withdraw Funds*\n\nContact support to withdraw. Min: 50 ETB',
   contact_info: '*Contact Support*\n\nEmail: support@fuabingo.com\nTelegram: @fua_bingo_support',
   winning_patterns_info: '*Winning Patterns*\n\n1. Horizontal Line\n2. Vertical Line\n3. Diagonal Line\n4. Four Corners\n5. Blackout\n\nFirst to complete a pattern wins!',
-  language_menu: 'Choose language:',
+  language_menu: 'Choose your language / Select your language:',
   transactions_prompt: 'Open the Mini App Wallet tab to view transactions.',
+  // Admin commands
+  admin_stats: '*📊 Admin Dashboard*\n\n👥 Users: {users}\n🎮 Games: {games}\n🟢 Active: {active}\n💰 Deposits: {deposits} ETB\n💸 Withdrawals: {withdrawals} ETB\n📈 Revenue: {revenue} ETB\n⏳ Pending Deposits: {pendingDep}\n⏳ Pending Withdrawals: {pendingWit}',
+  admin_users: '*👥 Recent Users*\n\n{users}',
+  admin_pending: '*⏳ Pending Transactions*\n\n{transactions}',
+  admin_approved: '✅ Transaction {id} approved.',
+  admin_rejected: '❌ Transaction {id} rejected.',
+  admin_no_pending: 'No pending transactions.',
+  admin_no_users: 'No users found.',
+  admin_help: '*🔐 Admin Commands*\n\n/admin_stats - View dashboard stats\n/admin_users - List recent users\n/admin_pending - View pending transactions\n/admin_approve <tx_id> - Approve a transaction\n/admin_reject <tx_id> - Reject a transaction\n/admin_help - Show this help',
+};
+
+const AM = {
+  welcome: '🎰 እንኳን ወደ Fua BINGO በደህና መጡ!\n\nመጫወት ለመጀመር ከታች ያለውን ቁልፍ ይጫኑ!',
+  share_contact: '📱 እባክዎ ለመቀጠል ስልክ ቁጥርዎን ያጋሩ።',
+  share_contact_btn: '📱 ስልክ ቁጥር አጋራ',
+  contact_received: '✅ እናመሰግናለን! ስልክ ቁጥርዎ ደርሷል።',
+  contact_already: '✅ ስልክ ቁጥርዎ ቀደም ሲል ተጋርቷል።',
+  play: '🎮 ቢንጎ ተጫወት',
+  check_balance: '💰 ቀሪ ሂሳብ',
+  deposit: '💳 ተቀማጭ',
+  withdraw: '💸 አውጣ',
+  contact: '📞 ያግኙን',
+  instructions: '📜 መመሪያ',
+  transactions: '📒 ግብይቶች',
+  winning_patterns: '🎯 የማሸነፊያ ዘዴዎች',
+  language: '🌐 ቋንቋ',
+  balance_info: '💰 *ቀሪ ሂሳብ*\n\nዋና ዋሌት: 0 ETB\nየጨዋታ ዋሌት: 0 ETB\nጠቅላላ: 0 ETB',
+  how_to_play: '*እንዴት እንደሚጫወት:*\n\n1. ውርርድ ምረጥ (10/20/50 ETB)\n2. ካርድ ምረጥ (1-300)\n3. ቁጥሮች ይመረጣሉ\n4. የተጣመሩ ቁጥሮች ላይ ምልክት አድርግ\n5. ረድፍ/አምድ/ሰያፍ ሙሉ ሲሆን አሸንፈሃል!',
+  deposit_choose: '💳 *የክፍያ ዘዴ ምረጥ:*',
+  deposit_cbe: 'CBE ባንክ',
+  deposit_telebirr: 'ቴሌብር',
+  deposit_cbe_info: '*CBE መመሪያ*\n\nአካውንት: 1000256789123\nስም: Fua BINGO\nባንክ: CBE',
+  deposit_telebirr_info: '*ቴሌብር መመሪያ*\n\nቁጥር: 0925502345\nስም: አሸ',
+  withdraw_info: '*ገንዘብ ማውጣት*\n\nድጋፍ ያግኙ። ዝቅተኛ: 50 ETB',
+  contact_info: '*ድጋፍ*\n\nEmail: support@fuabingo.com\nTelegram: @fua_bingo_support',
+  winning_patterns_info: '*የማሸነፊያ ዘዴዎች*\n\n1. አግዳሚ ረድፍ\n2. አቀባዊ አምድ\n3. ሰያፍ መስመር\n4. አራት ማዕዘኖች\n5. ሙሉ ካርድ',
+  language_menu: 'ቋንቋ ምረጥ:',
+  transactions_prompt: 'ወደ ሚኒ አፕ ዋሌት ትር ይሂዱ።',
 };
 
 function getText(lang: 'en' | 'am', key: string): string {
@@ -138,238 +179,349 @@ function getText(lang: 'en' | 'am', key: string): string {
 
 function getMainKeyboard(lang: 'en' | 'am') {
   const bt = (k: string) => getText(lang, k);
-  return Markup.keyboard([
-    [bt('play')],
-    [bt('check_balance'), bt('deposit')],
-    [bt('withdraw'), bt('contact')],
-    [bt('instructions'), bt('transactions')],
-    [bt('winning_patterns'), bt('language')],
-  ]).resize();
+  return {
+    keyboard: [
+      [{ text: bt('play') }],
+      [{ text: bt('check_balance') }, { text: bt('deposit') }],
+      [{ text: bt('withdraw') }, { text: bt('contact') }],
+      [{ text: bt('instructions') }, { text: bt('transactions') }],
+      [{ text: bt('winning_patterns') }, { text: bt('language') }],
+    ],
+    resize_keyboard: true,
+  };
 }
 
-// Helper to get or create profile in Supabase
-async function getOrCreateProfile(telegramId: string, firstName?: string, username?: string) {
-  const { data: existing } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('telegram_id', telegramId)
-    .maybeSingle();
+// Admin command handlers
+async function handleAdminStats(chatId: number) {
+  const { data: profiles } = await supabase.from('profiles').select('id', { count: 'exact', head: true });
+  const { data: games } = await supabase.from('games').select('id', { count: 'exact', head: true });
+  const { data: activeGames } = await supabase.from('games').select('id', { count: 'exact', head: true }).eq('status', 'active');
+  const { data: transactions } = await supabase.from('transactions').select('type, amount, status');
 
-  if (existing) return existing;
-
-  const { data: newProfile, error } = await supabase
-    .from('profiles')
-    .insert({
-      telegram_id: telegramId,
-      first_name: firstName || null,
-      username: username || null,
-      language: 'en',
-      sound_on: true,
-      verified: false,
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error creating profile:', error);
-    return null;
+  let totalDeposits = 0, totalWithdrawals = 0, totalBets = 0, totalWins = 0;
+  let pendingDep = 0, pendingWit = 0;
+  if (transactions) {
+    for (const t of transactions) {
+      const amt = Number(t.amount) || 0;
+      if (t.type === 'deposit' && t.status === 'completed') totalDeposits += amt;
+      if (t.type === 'withdraw' && t.status === 'completed') totalWithdrawals += amt;
+      if (t.type === 'bet') totalBets += amt;
+      if (t.type === 'win') totalWins += amt;
+      if (t.type === 'deposit' && t.status === 'pending') pendingDep++;
+      if (t.type === 'withdraw' && t.status === 'pending') pendingWit++;
+    }
   }
 
-  // Create wallet for new user
-  await supabase.from('wallets').insert({
-    user_id: (newProfile as any).id,
-    main_balance: 0,
-    play_balance: 0,
-  });
+  const msg = EN.admin_stats
+    .replace('{users}', String(profiles?.length || 0))
+    .replace('{games}', String(games?.length || 0))
+    .replace('{active}', String(activeGames?.length || 0))
+    .replace('{deposits}', totalDeposits.toLocaleString())
+    .replace('{withdrawals}', totalWithdrawals.toLocaleString())
+    .replace('{revenue}', (totalBets - totalWins).toLocaleString())
+    .replace('{pendingDep}', String(pendingDep))
+    .replace('{pendingWit}', String(pendingWit));
 
-  return newProfile;
+  await sendMessage(chatId, msg, { parse_mode: 'Markdown' });
 }
 
-// Notify admin about new contact
-async function notifyAdmin(telegramId: string, phone: string, firstName?: string, username?: string) {
-  if (!adminChatId) return;
-  const name = firstName || 'Unknown';
-  const user = username ? `@${username}` : 'N/A';
-  const msg = `📱 *New User Contact Shared*\n\n👤 User: ${name}\n🆔 Telegram ID: ${telegramId}\n📞 Phone: ${phone}\n👤 Username: ${user}`;
-  try {
-    await bot.telegram.sendMessage(adminChatId, msg, { parse_mode: 'Markdown' as const });
-  } catch (err) {
-    console.error('Failed to notify admin:', err);
-  }
-}
-
-bot.start(async (ctx) => {
-  const lang = getUserLang(ctx);
-  const telegramId = String(ctx.from.id);
-  const firstName = ctx.from.first_name;
-  const username = ctx.from.username;
-
-  // Create/ensure profile exists
-  await getOrCreateProfile(telegramId, firstName, username);
-
-  // Check if user already shared their phone
-  const { data: profile } = await supabase
+async function handleAdminUsers(chatId: number) {
+  const { data: users } = await supabase
     .from('profiles')
-    .select('phone')
-    .eq('telegram_id', telegramId)
-    .maybeSingle();
+    .select('first_name, username, telegram_id, phone, created_at')
+    .order('created_at', { ascending: false })
+    .limit(10);
 
-  if (profile?.phone) {
-    // Phone already shared - go straight to main menu
-    await ctx.reply(
-      getText(lang, 'welcome'),
-      Markup.inlineKeyboard([
-        Markup.button.webApp(getText(lang, 'play'), miniAppUrl),
-      ])
-    );
-    await ctx.reply('Use the buttons below:', getMainKeyboard(lang));
-  } else {
-    // Ask user to share their phone number first
-    await ctx.reply(
-      getText(lang, 'share_contact'),
-      Markup.keyboard([
-        [Markup.button.contactRequest(getText(lang, 'share_contact_btn'))],
-      ]).resize().oneTime()
-    );
-  }
-});
-
-// Handle contact sharing
-bot.on('contact', async (ctx) => {
-  const lang = getUserLang(ctx);
-  const telegramId = String(ctx.from.id);
-  const phone = ctx.message?.contact?.phone_number;
-  const firstName = ctx.from.first_name;
-  const username = ctx.from.username;
-
-  if (!phone) {
-    await ctx.reply('Could not read your phone number. Please try again.');
+  if (!users || users.length === 0) {
+    await sendMessage(chatId, EN.admin_no_users);
     return;
   }
 
-  // Store phone in profile
-  const { error } = await supabase
-    .from('profiles')
-    .update({ phone, first_name: firstName || null, username: username || null })
-    .eq('telegram_id', telegramId);
+  const list = users.map((u, i) => 
+    `${i + 1}. ${u.first_name || 'Unknown'}${u.username ? ` (@${u.username})` : ''}\n   ID: ${u.telegram_id}${u.phone ? ` | 📞 ${u.phone}` : ''}`
+  ).join('\n');
 
-  if (error) {
-    console.error('Error saving phone:', error);
-    await ctx.reply('Sorry, there was an error saving your contact. Please try again.');
+  await sendMessage(chatId, EN.admin_users.replace('{users}', list), { parse_mode: 'Markdown' });
+}
+
+async function handleAdminPending(chatId: number) {
+  const { data: txs } = await supabase
+    .from('transactions')
+    .select('*, profiles!inner(first_name, username)')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  if (!txs || txs.length === 0) {
+    await sendMessage(chatId, EN.admin_no_pending);
     return;
   }
 
-  // Confirm to user
-  await ctx.reply(getText(lang, 'contact_received'));
+  const list = txs.map((tx: any) => 
+    `• ${tx.type.toUpperCase()} | ${Number(tx.amount).toLocaleString()} ETB | ${tx.profiles?.first_name || 'Unknown'}\n  ID: \`${tx.id.slice(0, 8)}...\` | /approve_${tx.id.slice(0, 8)}`
+  ).join('\n');
 
-  // Notify admin
-  await notifyAdmin(telegramId, phone, firstName, username);
+  await sendMessage(chatId, EN.admin_pending.replace('{transactions}', list), { parse_mode: 'Markdown' });
+}
 
-  // Show main menu
-  await ctx.reply(
-    getText(lang, 'welcome'),
-    Markup.inlineKeyboard([
-      Markup.button.webApp(getText(lang, 'play'), miniAppUrl),
-    ])
-  );
-  await ctx.reply('Use the buttons below:', getMainKeyboard(lang));
-});
+async function handleAdminApprove(chatId: number, txId: string) {
+  const { data: tx } = await supabase.from('transactions').select('*').eq('id', txId).single();
+  if (!tx || tx.status !== 'pending') {
+    await sendMessage(chatId, 'Transaction not found or already processed.');
+    return;
+  }
 
-bot.hears(/^🎮/, async (ctx) => {
-  const lang = getUserLang(ctx);
-  await ctx.reply(getText(lang, 'play'), Markup.inlineKeyboard([
-    Markup.button.webApp(getText(lang, 'play'), miniAppUrl),
-  ]));
-});
+  await supabase.from('transactions').update({ status: 'completed' }).eq('id', txId);
 
-bot.hears(/^💰/, async (ctx) => {
-  const lang = getUserLang(ctx);
-  await ctx.reply(getText(lang, 'balance_info'), { parse_mode: 'Markdown' as const });
-});
+  if (tx.type === 'deposit') {
+    const { data: wallet } = await supabase.from('wallets').select('main_balance').eq('user_id', tx.user_id).single();
+    if (wallet) {
+      await supabase.from('wallets').update({ main_balance: Number(wallet.main_balance) + Number(tx.amount) }).eq('user_id', tx.user_id);
+    }
+  }
 
-bot.hears(/^💳/, async (ctx) => {
-  const lang = getUserLang(ctx);
-  await ctx.reply(getText(lang, 'deposit_choose'), {
-    parse_mode: 'Markdown' as const,
-    ...Markup.inlineKeyboard([
-      [Markup.button.callback('\uD83C\uDFE6 ' + getText(lang, 'deposit_cbe'), 'deposit_cbe')],
-      [Markup.button.callback('\uD83D\uDCF1 ' + getText(lang, 'deposit_telebirr'), 'deposit_telebirr')],
-    ])
-  });
-});
+  await sendMessage(chatId, EN.admin_approved.replace('{id}', txId.slice(0, 8)));
+}
 
-bot.action('deposit_cbe', async (ctx) => {
-  const lang = getUserLang(ctx);
-  await ctx.editMessageText(getText(lang, 'deposit_cbe_info'), { parse_mode: 'Markdown' as const });
-});
+async function handleAdminReject(chatId: number, txId: string) {
+  await supabase.from('transactions').update({ status: 'failed' }).eq('id', txId);
+  await sendMessage(chatId, EN.admin_rejected.replace('{id}', txId.slice(0, 8)));
+}
 
-bot.action('deposit_telebirr', async (ctx) => {
-  const lang = getUserLang(ctx);
-  await ctx.editMessageText(getText(lang, 'deposit_telebirr_info'), { parse_mode: 'Markdown' as const });
-});
-
-bot.hears(/^💸/, async (ctx) => {
-  const lang = getUserLang(ctx);
-  await ctx.reply(getText(lang, 'withdraw_info'), { parse_mode: 'Markdown' as const });
-});
-
-bot.hears(/^📞/, async (ctx) => {
-  const lang = getUserLang(ctx);
-  await ctx.reply(getText(lang, 'contact_info'), { parse_mode: 'Markdown' as const });
-});
-
-bot.hears(/^📜/, async (ctx) => {
-  const lang = getUserLang(ctx);
-  await ctx.reply(getText(lang, 'how_to_play'), { parse_mode: 'Markdown' as const });
-});
-
-bot.hears(/^📒/, async (ctx) => {
-  const lang = getUserLang(ctx);
-  await ctx.reply(getText(lang, 'transactions_prompt'), {
-    parse_mode: 'Markdown' as const,
-    ...Markup.inlineKeyboard([
-      Markup.button.webApp('\uD83D\uDCC2 Open Mini App', miniAppUrl),
-    ])
-  });
-});
-
-bot.hears(/^🎯/, async (ctx) => {
-  const lang = getUserLang(ctx);
-  await ctx.reply(getText(lang, 'winning_patterns_info'), { parse_mode: 'Markdown' as const });
-});
-
-bot.hears(/^🌐/, async (ctx) => {
-  await ctx.reply(getText('en', 'language_menu'), {
-    ...Markup.inlineKeyboard([
-      [Markup.button.callback('\uD83C\uDDEC\uD83C\uDDE7 English', 'lang_en')],
-      [Markup.button.callback('\uD83C\uDDEA\uD83C\uDDF9 Amharic', 'lang_am')],
-    ])
-  });
-});
-
-bot.action('lang_en', async (ctx) => {
-  await ctx.editMessageText('Language set to English');
-  await ctx.reply('Use the buttons below:', getMainKeyboard('en'));
-});
-
-bot.action('lang_am', async (ctx) => {
-  await ctx.editMessageText('Language set to Amharic');
-  await ctx.reply('Use the buttons below:', getMainKeyboard('am'));
-});
-
-bot.on('text', async (ctx) => {
-  const lang = getUserLang(ctx);
-  await ctx.reply('Use the buttons below:', getMainKeyboard(lang));
-});
-
+// Main webhook handler
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    await bot.handleUpdate(body);
+    const message = body.message || body.callback_query?.message;
+    const callbackQuery = body.callback_query;
+    const chatId = message?.chat?.id || callbackQuery?.message?.chat?.id;
+    const from = body.message?.from || body.callback_query?.from;
+    const text = body.message?.text || '';
+    const lang = getUserLang(from);
+
+    if (!chatId) {
+      return NextResponse.json({ ok: true });
+    }
+
+    // Handle callback queries
+    if (callbackQuery) {
+      const data = callbackQuery.data;
+      if (data === 'deposit_cbe') {
+        await answerCallbackQuery(callbackQuery.id);
+        await sendMessage(chatId, getText(lang, 'deposit_cbe_info'), { parse_mode: 'Markdown' });
+      } else if (data === 'deposit_telebirr') {
+        await answerCallbackQuery(callbackQuery.id);
+        await sendMessage(chatId, getText(lang, 'deposit_telebirr_info'), { parse_mode: 'Markdown' });
+      } else if (data === 'lang_en') {
+        await answerCallbackQuery(callbackQuery.id, 'Language set to English');
+        await sendMessage(chatId, 'Use the buttons below:', getMainKeyboard('en'));
+      } else if (data === 'lang_am') {
+        await answerCallbackQuery(callbackQuery.id, 'Language set to Amharic');
+        await sendMessage(chatId, 'Use the buttons below:', getMainKeyboard('am'));
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // Handle contact sharing
+    if (body.message?.contact) {
+      const phone = body.message.contact.phone_number;
+      const telegramId = String(from.id);
+      const firstName = from.first_name;
+      const username = from.username;
+
+      await supabase
+        .from('profiles')
+        .update({ phone, first_name: firstName || null, username: username || null })
+        .eq('telegram_id', telegramId);
+
+      await sendMessage(chatId, getText(lang, 'contact_received'));
+
+      // Notify admin
+      if (adminChatId) {
+        const name = firstName || 'Unknown';
+        const user = username ? `@${username}` : 'N/A';
+        await sendMessage(adminChatId, 
+          `📱 *New User Contact Shared*\n\n👤 User: ${name}\n🆔 ID: ${telegramId}\n📞 Phone: ${phone}\n👤 Username: ${user}`,
+          { parse_mode: 'Markdown' }
+        );
+      }
+
+      await sendMessage(chatId, getText(lang, 'welcome'), {
+        reply_markup: {
+          inline_keyboard: [[{ text: getText(lang, 'play'), web_app: { url: miniAppUrl } }]]
+        }
+      });
+      await sendMessage(chatId, 'Use the buttons below:', getMainKeyboard(lang));
+      return NextResponse.json({ ok: true });
+    }
+
+    // Handle /start command
+    if (text === '/start') {
+      const telegramId = String(from.id);
+      const firstName = from.first_name;
+      const username = from.username;
+
+      // Create/ensure profile
+      const { data: existing } = await supabase
+        .from('profiles')
+        .select('phone')
+        .eq('telegram_id', telegramId)
+        .maybeSingle();
+
+      if (!existing) {
+        await supabase.from('profiles').insert({
+          telegram_id: telegramId,
+          first_name: firstName || null,
+          username: username || null,
+          language: 'en',
+          sound_on: true,
+          verified: false,
+        });
+        // Create wallet
+        const { data: newProfile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('telegram_id', telegramId)
+          .single();
+        if (newProfile) {
+          await supabase.from('wallets').insert({
+            user_id: newProfile.id,
+            main_balance: 0,
+            play_balance: 0,
+          });
+        }
+      }
+
+      if (existing?.phone) {
+        await sendMessage(chatId, getText(lang, 'welcome'), {
+          reply_markup: {
+            inline_keyboard: [[{ text: getText(lang, 'play'), web_app: { url: miniAppUrl } }]]
+          }
+        });
+        await sendMessage(chatId, 'Use the buttons below:', getMainKeyboard(lang));
+      } else {
+        await sendMessage(chatId, getText(lang, 'share_contact'), {
+          reply_markup: {
+            keyboard: [[{ text: getText(lang, 'share_contact_btn'), request_contact: true }]],
+            resize_keyboard: true,
+            one_time_keyboard: true,
+          }
+        });
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // Admin commands (dynamic from DB)
+    if (adminChatId && String(chatId) === adminChatId) {
+      const commands = await getBotCommands();
+      if (text === commands.admin_stats) {
+        await handleAdminStats(chatId);
+        return NextResponse.json({ ok: true });
+      }
+      if (text === commands.admin_users) {
+        await handleAdminUsers(chatId);
+        return NextResponse.json({ ok: true });
+      }
+      if (text === commands.admin_pending) {
+        await handleAdminPending(chatId);
+        return NextResponse.json({ ok: true });
+      }
+      if (text === commands.admin_help) {
+        await sendMessage(chatId, EN.admin_help, { parse_mode: 'Markdown' });
+        return NextResponse.json({ ok: true });
+      }
+      if (text.startsWith(commands.admin_approve)) {
+        const shortId = text.replace(commands.admin_approve, '');
+        const { data: txs } = await supabase
+          .from('transactions')
+          .select('id')
+          .eq('status', 'pending');
+        if (txs) {
+          const match = txs.find((tx: any) => tx.id.startsWith(shortId));
+          if (match) {
+            await handleAdminApprove(chatId, match.id);
+          } else {
+            await sendMessage(chatId, 'Transaction not found.');
+          }
+        }
+        return NextResponse.json({ ok: true });
+      }
+      if (text.startsWith(commands.admin_reject)) {
+        const shortId = text.replace(commands.admin_reject, '');
+        const { data: txs } = await supabase
+          .from('transactions')
+          .select('id')
+          .eq('status', 'pending');
+        if (txs) {
+          const match = txs.find((tx: any) => tx.id.startsWith(shortId));
+          if (match) {
+            await handleAdminReject(chatId, match.id);
+          } else {
+            await sendMessage(chatId, 'Transaction not found.');
+          }
+        }
+        return NextResponse.json({ ok: true });
+      }
+    }
+
+    // Handle menu buttons by emoji prefix (dynamic from commands config)
+    const commands = await getBotCommands();
+    const messages = await getBotMessages();
+    
+    // Helper to get message from DB or fallback to hardcoded
+    const getMsg = (key: string, fallbackKey: string) => {
+      return messages[key] || getText(lang, fallbackKey);
+    };
+    
+    if (text.startsWith('🎮') || text === commands.play) {
+      await sendMessage(chatId, getMsg('welcome', 'welcome'), {
+        reply_markup: {
+          inline_keyboard: [[{ text: getText(lang, 'play'), web_app: { url: miniAppUrl } }]]
+        }
+      });
+    } else if (text.startsWith('💰') || text === commands.check_balance) {
+      await sendMessage(chatId, getMsg('balance_info', 'balance_info'), { parse_mode: 'Markdown' });
+    } else if (text.startsWith('💳') || text === commands.deposit) {
+      await sendMessage(chatId, getMsg('deposit_choose', 'deposit_choose'), {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🏦 ' + getText(lang, 'deposit_cbe'), callback_data: 'deposit_cbe' }],
+            [{ text: '📱 ' + getText(lang, 'deposit_telebirr'), callback_data: 'deposit_telebirr' }],
+          ]
+        }
+      });
+    } else if (text.startsWith('💸') || text === commands.withdraw) {
+      await sendMessage(chatId, getMsg('withdraw_info', 'withdraw_info'), { parse_mode: 'Markdown' });
+    } else if (text.startsWith('📞') || text === commands.contact) {
+      await sendMessage(chatId, getMsg('contact_info', 'contact_info'), { parse_mode: 'Markdown' });
+    } else if (text.startsWith('📜') || text === commands.instructions) {
+      await sendMessage(chatId, getMsg('how_to_play', 'how_to_play'), { parse_mode: 'Markdown' });
+    } else if (text.startsWith('📒') || text === commands.transactions) {
+      await sendMessage(chatId, getMsg('transactions_prompt', 'transactions_prompt'), {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[{ text: '📂 Open Mini App', web_app: { url: miniAppUrl } }]]
+        }
+      });
+    } else if (text.startsWith('🎯') || text === commands.winning_patterns) {
+      await sendMessage(chatId, getMsg('winning_patterns_info', 'winning_patterns_info'), { parse_mode: 'Markdown' });
+    } else if (text.startsWith('🌐') || text === commands.language) {
+      await sendMessage(chatId, getText('en', 'language_menu'), {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🇺🇸 English', callback_data: 'lang_en' }],
+            [{ text: '🇪🇹 Amharic', callback_data: 'lang_am' }],
+          ]
+        }
+      });
+    } else {
+      await sendMessage(chatId, 'Use the buttons below:', getMainKeyboard(lang));
+    }
+
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error('Telegram webhook error:', error);
-    // Return 200 even on error so Telegram doesn't keep retrying
-    return NextResponse.json({ ok: true, warning: 'handled with error' });
+    console.error('Webhook error:', error);
+    return NextResponse.json({ ok: true, warning: 'handled' });
   }
 }

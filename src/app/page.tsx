@@ -7,14 +7,71 @@ import BingoGrid from '@/lib/components/BingoGrid';
 import { 
   Gamepad2, Medal, History, Wallet, User, 
   Check, X, Volume2, VolumeX, Trophy, Play, Star, Coins, RefreshCw, 
-  Info, Crown, Target, List, Swords, Eye, Timer, RefreshCcw
+  Info, Crown, Target, List, Swords, Eye, Timer, RefreshCcw, Volume1
 } from 'lucide-react';
-import { generateCard, getSeededCard, getWinningCells, getColumnLabel, getAvailableCards, drawNumber } from '@/lib/server/bingo';
+import { generateCard, getSeededCard, getWinningCells, getColumnLabel, getAvailableCards, drawNumber, checkWin } from '@/lib/server/bingo';
 
 type TabType = 'game' | 'scores' | 'history' | 'wallet' | 'profile';
 
 function generateGameId(): string {
   return Math.random().toString(36).substring(2, 10);
+}
+
+// Amharic number words
+const AMHARIC_NUMBERS: Record<number, string> = {
+  1: 'አንድ', 2: 'ሁለት', 3: 'ሶስት', 4: 'አራት', 5: 'አምስት',
+  6: 'ስድስት', 7: 'ሰባት', 8: 'ስምንት', 9: 'ዘጠኝ', 10: 'አስር',
+  11: 'አስራ አንድ', 12: 'አስራ ሁለት', 13: 'አስራ ሶስት', 14: 'አስራ አራት', 15: 'አስራ አምስት',
+  16: 'አስራ ስድስት', 17: 'አስራ ሰባት', 18: 'አስራ ስምንት', 19: 'አስራ ዘጠኝ', 20: 'ሃያ',
+  21: 'ሃያ አንድ', 22: 'ሃያ ሁለት', 23: 'ሃያ ሶስት', 24: 'ሃያ አራት', 25: 'ሃያ አምስት',
+  26: 'ሃያ ስድስት', 27: 'ሃያ ሰባት', 28: 'ሃያ ስምንት', 29: 'ሃያ ዘጠኝ', 30: 'ሰላሳ',
+  31: 'ሰላሳ አንድ', 32: 'ሰላሳ ሁለት', 33: 'ሰላሳ ሶስት', 34: 'ሰላሳ አራት', 35: 'ሰላሳ አምስት',
+  36: 'ሰላሳ ስድስት', 37: 'ሰላሳ ሰባት', 38: 'ሰላሳ ስምንት', 39: 'ሰላሳ ዘጠኝ', 40: 'አርባ',
+  41: 'አርባ አንድ', 42: 'አርባ ሁለት', 43: 'አርባ ሶስት', 44: 'አርባ አራት', 45: 'አርባ አምስት',
+  46: 'አርባ ስድስት', 47: 'አርባ ሰባት', 48: 'አርባ ስምንት', 49: 'አርባ ዘጠኝ', 50: 'ሃምሳ',
+  51: 'ሃምሳ አንድ', 52: 'ሃምሳ ሁለት', 53: 'ሃምሳ ሶስት', 54: 'ሃምሳ አራት', 55: 'ሃምሳ አምስት',
+  56: 'ሃምሳ ስድስት', 57: 'ሃምሳ ሰባት', 58: 'ሃምሳ ስምንት', 59: 'ሃምሳ ዘጠኝ', 60: 'ስልሳ',
+  61: 'ስልሳ አንድ', 62: 'ስልሳ ሁለት', 63: 'ስልሳ ሶስት', 64: 'ስልሳ አራት', 65: 'ስልሳ አምስት',
+  66: 'ስልሳ ስድስት', 67: 'ስልሳ ሰባት', 68: 'ስልሳ ስምንት', 69: 'ስልሳ ዘጠኝ', 70: 'ሰባ',
+  71: 'ሰባ አንድ', 72: 'ሰባ ሁለት', 73: 'ሰባ ሶስት', 74: 'ሰባ አራት', 75: 'ሰባ አምስት',
+};
+
+const AMHARIC_COLUMNS: Record<string, string> = {
+  B: 'ቢ', I: 'አይ', N: 'ኤን', G: 'ጂ', O: 'ኦ',
+};
+
+// Voice announcement for drawn numbers
+function speakNumber(num: number, lang: 'en' | 'am') {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return;
+  
+  // Cancel any ongoing speech
+  window.speechSynthesis.cancel();
+  
+  const label = getColumnLabel(num);
+  let text: string;
+  
+  if (lang === 'am') {
+    const colName = AMHARIC_COLUMNS[label] || label;
+    const numWord = AMHARIC_NUMBERS[num] || String(num);
+    text = `${colName} ${numWord}`;
+  } else {
+    text = `${label} ${num}`;
+  }
+  
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = lang === 'am' ? 'am-ET' : 'en-US';
+  utterance.rate = 0.9;
+  utterance.pitch = 1;
+  utterance.volume = 1;
+  
+  // Try to find an Amharic voice if available
+  if (lang === 'am') {
+    const voices = window.speechSynthesis.getVoices();
+    const amharicVoice = voices.find(v => v.lang.startsWith('am'));
+    if (amharicVoice) utterance.voice = amharicVoice;
+  }
+  
+  window.speechSynthesis.speak(utterance);
 }
 
 function HomePage() {
@@ -33,8 +90,19 @@ function HomePage() {
   const [livePlayerCount, setLivePlayerCount] = useState(20);
   const [gameId, setGameId] = useState('');
   const [previewCard, setPreviewCard] = useState<number[][]>([]);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [showWinModal, setShowWinModal] = useState(false);
+  const [winningCard, setWinningCard] = useState<number[][]>([]);
+  const [winningCells, setWinningCells] = useState<boolean[][]>([]);
   const drawnRef = useRef<number[]>([]);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Load voices on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.getVoices(); // Trigger voice loading
+    }
+  }, []);
 
   // Initialize Telegram
   useEffect(() => {
@@ -96,6 +164,17 @@ function HomePage() {
     return () => clearInterval(timer);
   }, [showCardPicker]);
 
+  // Handle winning state
+  const triggerWin = useCallback((card: number[][], drawn: number[]) => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setWinningCard(card);
+    setWinningCells(getWinningCells(card, drawn));
+    setShowWinModal(true);
+  }, []);
+
   // Auto-draw numbers when in game (every 2.5 seconds)
   useEffect(() => {
     if (!inGame) {
@@ -118,6 +197,17 @@ function HomePage() {
       drawnRef.current = newDrawn;
       setDrawnNumbers(newDrawn);
       setRecentCalled(prev => [{ num, label: `${getColumnLabel(num)}-${num}` }, ...prev].slice(0, 10));
+      
+      // Voice announcement
+      if (voiceEnabled) {
+        speakNumber(num, language);
+      }
+      
+      // Check if current player won
+      const card = gameCard;
+      if (card.length > 0 && !isWatching && checkWin(card, newDrawn)) {
+        triggerWin(card, newDrawn);
+      }
     }, 2500);
     return () => {
       if (intervalRef.current) {
@@ -125,7 +215,7 @@ function HomePage() {
         intervalRef.current = null;
       }
     };
-  }, [inGame]);
+  }, [inGame, voiceEnabled, language, gameCard, isWatching, triggerWin]);
 
   // Keep ref in sync
   useEffect(() => {
@@ -154,26 +244,23 @@ function HomePage() {
     setSelectedStake(null);
   }, []);
 
-  // Toggle card selection in picker - generates preview immediately
+  // Toggle card selection in picker
   const toggleCard = useCallback((num: number) => {
     setSelectedCards(prev => {
       if (prev.includes(num)) return prev.filter(c => c !== num);
       if (prev.length >= 2) return prev;
       return [...prev, num];
     });
-    // Immediately generate the card preview
     if (selectedCards.length === 0 || !selectedCards.includes(num)) {
       const newCardList = selectedCards.includes(num) 
         ? selectedCards.filter(c => c !== num) 
         : [...selectedCards, num];
       if (newCardList.length > 0) {
-        const lastCardNum = num;
-        setPreviewCard(getSeededCard(lastCardNum));
+        setPreviewCard(getSeededCard(num));
       } else {
         setPreviewCard([]);
       }
     } else {
-      // Removing the card
       const updated = selectedCards.filter(c => c !== num);
       if (updated.length > 0) {
         setPreviewCard(getSeededCard(updated[0]));
@@ -218,6 +305,9 @@ function HomePage() {
     setSelectedCards([]);
     setRecentCalled([]);
     setGameId('');
+    setShowWinModal(false);
+    setWinningCard([]);
+    setWinningCells([]);
   }, []);
 
   const manualDraw = useCallback(() => {
@@ -230,9 +320,50 @@ function HomePage() {
     drawnRef.current = newDrawn;
     setDrawnNumbers(newDrawn);
     setRecentCalled(prev => [{ num, label: `${getColumnLabel(num)}-${num}` }, ...prev].slice(0, 10));
-  }, []);
+    
+    if (voiceEnabled) speakNumber(num, language);
+    
+    const card = gameCard;
+    if (card.length > 0 && !isWatching && checkWin(card, newDrawn)) {
+      triggerWin(card, newDrawn);
+    }
+  }, [voiceEnabled, language, gameCard, isWatching, triggerWin]);
 
-  const handleBingo = useCallback(() => { alert(t('bingo')); leaveGame(); }, [t, leaveGame]);
+  const handleBingo = useCallback(() => {
+    if (gameCard.length > 0) {
+      triggerWin(gameCard, drawnRef.current);
+    }
+  }, [gameCard, triggerWin]);
+
+  // ============= WIN MODAL =============
+  const renderWinModal = () => {
+    if (!showWinModal) return null;
+    return (
+      <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4" onClick={() => { setShowWinModal(false); leaveGame(); }}>
+        <div className="bg-navy-card rounded-2xl p-6 w-full max-w-sm animate-slide-up text-center" onClick={e => e.stopPropagation()}>
+          <div className="text-5xl mb-3">🎉</div>
+          <h2 className="text-xl font-bold text-gold mb-1">{t('bingo')}</h2>
+          <p className="text-sm text-gray-400 mb-4">Congratulations! You won!</p>
+          
+          {winningCard.length > 0 && (
+            <div className="bg-navy-light/50 rounded-xl p-2 mb-4">
+              <div className="text-[10px] text-gray-400 mb-1">Winning Card</div>
+              <BingoGrid card={winningCard} drawnNumbers={drawnNumbers} winningCells={winningCells} />
+            </div>
+          )}
+
+          <div className="glass rounded-xl p-3 mb-4">
+            <div className="text-[10px] text-gray-400 uppercase">Prize</div>
+            <div className="text-lg font-bold text-gold">{(selectedStake || 10) * livePlayerCount} {t('birr')}</div>
+          </div>
+
+          <button onClick={() => { setShowWinModal(false); leaveGame(); }} className="w-full bg-gold text-navy font-bold py-3 rounded-xl text-sm">
+            {t('play')} {t('again') || 'Again'}
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   // ============= GAME TAB =============
   const renderGameTab = () => {
@@ -281,6 +412,13 @@ function HomePage() {
                   {autoMark ? 'ON' : 'OFF'}
                 </button>
               </div>
+              {/* Voice toggle */}
+              <div className="glass rounded-xl p-2">
+                <div className="text-[8px] text-gray-400 uppercase mb-1">Voice</div>
+                <button onClick={() => setVoiceEnabled(!voiceEnabled)} className={`w-full py-1.5 rounded-lg text-[10px] font-bold transition-all ${voiceEnabled ? 'bg-gold text-navy' : 'bg-navy text-gray-400'}`}>
+                  {voiceEnabled ? 'ON' : 'OFF'}
+                </button>
+              </div>
               {/* Watching badge */}
               {isWatching && (
                 <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-2 text-center">
@@ -299,6 +437,7 @@ function HomePage() {
             <button onClick={handleBingo} className="bg-accent-green text-white font-bold py-2.5 px-5 rounded-lg text-xs">{t('bingo')}</button>
             <button onClick={leaveGame} className="glass text-red-400 font-medium py-2.5 px-3 rounded-lg text-xs">{t('leave')}</button>
           </div>
+          {renderWinModal()}
         </div>
       );
     }
@@ -404,7 +543,7 @@ function HomePage() {
           </div>
         </div>
 
-        {/* Card Preview - shows after card selection */}
+        {/* Card Preview */}
         {selectedCards.length > 0 && previewCard.length > 0 && (
           <div className="px-4 py-2 border-t border-white/5">
             <div className="text-[10px] text-gray-400 mb-1">Your BINGO Card #{selectedCards[0]}</div>
@@ -433,7 +572,7 @@ function HomePage() {
           </div>
         </div>
 
-        {/* Bottom section with Play button */}
+        {/* Bottom section */}
         <div className="px-4 py-3 border-t border-white/5 bg-navy-light">
           <div className="flex items-center justify-between mb-3">
             <div className="text-[10px] text-gray-400">{t('selected_card')} ({selectedCards.length}/2)</div>
