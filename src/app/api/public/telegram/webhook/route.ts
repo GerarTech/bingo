@@ -392,22 +392,16 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      if (existing?.phone) {
-        await sendMessage(chatId, getText(lang, 'welcome'), {
-          reply_markup: {
-            inline_keyboard: [[{ text: getText(lang, 'play'), web_app: { url: miniAppUrl } }]]
-          }
-        });
-        await sendMessage(chatId, 'Use the buttons below:', getMainKeyboard(lang));
-      } else {
-        await sendMessage(chatId, getText(lang, 'share_contact'), {
-          reply_markup: {
-            keyboard: [[{ text: getText(lang, 'share_contact_btn'), request_contact: true }]],
-            resize_keyboard: true,
-            one_time_keyboard: true,
-          }
-        });
-      }
+      // Send welcome message with play button
+      await sendMessage(chatId, getText(lang, 'welcome'), {
+        reply_markup: {
+          inline_keyboard: [[{ text: getText(lang, 'play'), web_app: { url: miniAppUrl } }]]
+        }
+      });
+      
+      // Always send the main keyboard
+      await sendMessage(chatId, 'Menu:', getMainKeyboard(lang));
+      
       return NextResponse.json({ ok: true });
     }
 
