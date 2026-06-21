@@ -467,15 +467,31 @@ export async function POST(request: NextRequest) {
       return messages[key] || getText(lang, fallbackKey);
     };
     
-    if (text.startsWith('🎮') || text === commands.play) {
+    // Default user commands (used if not in database)
+    const defaultCommands = {
+      play: '🎮 Play BINGO',
+      check_balance: '💰 Check Balance',
+      deposit: '💳 Deposit',
+      withdraw: '💸 Withdraw',
+      contact: '📞 Contact Us',
+      instructions: '📜 Game Instruction',
+      transactions: '📒 Transactions',
+      winning_patterns: '🎯 Winning patterns',
+      language: '🌐 Language',
+    };
+    
+    // Merge DB commands with defaults
+    const userCommands = { ...defaultCommands, ...commands };
+    
+    if (text.startsWith('🎮') || text === userCommands.play) {
       await sendMessage(chatId, getMsg('welcome', 'welcome'), {
         reply_markup: {
           inline_keyboard: [[{ text: getText(lang, 'play'), web_app: { url: miniAppUrl } }]]
         }
       });
-    } else if (text.startsWith('💰') || text === commands.check_balance) {
+    } else if (text.startsWith('💰') || text === userCommands.check_balance) {
       await sendMessage(chatId, getMsg('balance_info', 'balance_info'), { parse_mode: 'Markdown' });
-    } else if (text.startsWith('💳') || text === commands.deposit) {
+    } else if (text.startsWith('💳') || text === userCommands.deposit) {
       await sendMessage(chatId, getMsg('deposit_choose', 'deposit_choose'), {
         parse_mode: 'Markdown',
         reply_markup: {
@@ -485,22 +501,22 @@ export async function POST(request: NextRequest) {
           ]
         }
       });
-    } else if (text.startsWith('💸') || text === commands.withdraw) {
+    } else if (text.startsWith('💸') || text === userCommands.withdraw) {
       await sendMessage(chatId, getMsg('withdraw_info', 'withdraw_info'), { parse_mode: 'Markdown' });
-    } else if (text.startsWith('📞') || text === commands.contact) {
+    } else if (text.startsWith('📞') || text === userCommands.contact) {
       await sendMessage(chatId, getMsg('contact_info', 'contact_info'), { parse_mode: 'Markdown' });
-    } else if (text.startsWith('📜') || text === commands.instructions) {
+    } else if (text.startsWith('📜') || text === userCommands.instructions) {
       await sendMessage(chatId, getMsg('how_to_play', 'how_to_play'), { parse_mode: 'Markdown' });
-    } else if (text.startsWith('📒') || text === commands.transactions) {
+    } else if (text.startsWith('📒') || text === userCommands.transactions) {
       await sendMessage(chatId, getMsg('transactions_prompt', 'transactions_prompt'), {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [[{ text: '📂 Open Mini App', web_app: { url: miniAppUrl } }]]
         }
       });
-    } else if (text.startsWith('🎯') || text === commands.winning_patterns) {
+    } else if (text.startsWith('🎯') || text === userCommands.winning_patterns) {
       await sendMessage(chatId, getMsg('winning_patterns_info', 'winning_patterns_info'), { parse_mode: 'Markdown' });
-    } else if (text.startsWith('🌐') || text === commands.language) {
+    } else if (text.startsWith('🌐') || text === userCommands.language) {
       await sendMessage(chatId, getText('en', 'language_menu'), {
         reply_markup: {
           inline_keyboard: [
